@@ -21,7 +21,7 @@ pub fn save_to_file(lines: &Vec<String>, filename: &str) -> std::io::Result<()> 
         writer.write_all(line.as_bytes())?;
         writer.write_all(b"\n")?;
     }
-    writer.flush()?;
+    writer.flush()?; 
 
     rename(temp_name, filename)?;
 

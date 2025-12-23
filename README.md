@@ -15,7 +15,7 @@ a lightweight terminal text editor
 **TBD** *installation instructions are currently being finalized and will be available soon.*
 
 ---
-
+ 
 ## technical features
 <details>
 <summary><b>core architecture & state management</b></summary>

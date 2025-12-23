@@ -17,4 +17,4 @@ pub fn handle_backspace() -> std::io::Result<()> {
 pub fn handle_enter() -> std::io::Result<()> {
     print!("\r\n");
     stdout().flush()
-}
+} 

@@ -19,7 +19,7 @@ static RUST_KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "None", "Some", "Ok", "Err",
     ]);
     set
-});
+}); 
 
 static PYTHON_KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     let mut set = HashSet::new();

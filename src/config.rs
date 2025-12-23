@@ -24,3 +24,4 @@ pub fn save_config(config: &Config) -> std::io::Result<()> {
     let content = toml::to_string_pretty(config).unwrap_or_default();
     fs::write(path, content)
 }
+ 
