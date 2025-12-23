@@ -1,24 +1,18 @@
-# build artifacts
-/target/
+# Rust build artifacts
 /target
+
+# Cargo lock file (optional — many apps commit it, but if you don't want it)
+/Cargo.lock
+
+# Backup files from some editors
 **/*.rs.bk
-Cargo.lock  # Optional: keep if you want reproducible builds, but many apps omit it
-config.toml  # Don't commit your personal config!
 
-# generated files
-*.rs.bk
-fero_full_transfer.txt
-fero_full_source.txt
+# Your personal config (don't commit personal settings)
+/config.toml
 
-# os-specific files
+# macOS junk
 .DS_Store
-Thumbs.db
 
-# editor swap files
-*.swp
-*~
-
-
-# Added by cargo
-
-/target
+# IDE/project files (if you use any)
+/.idea
+/.vscode
