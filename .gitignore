@@ -1,0 +1,24 @@
+# build artifacts
+/target/
+/target
+**/*.rs.bk
+Cargo.lock  # Optional: keep if you want reproducible builds, but many apps omit it
+config.toml  # Don't commit your personal config!
+
+# generated files
+*.rs.bk
+fero_full_transfer.txt
+fero_full_source.txt
+
+# os-specific files
+.DS_Store
+Thumbs.db
+
+# editor swap files
+*.swp
+*~
+
+
+# Added by cargo
+
+/target
