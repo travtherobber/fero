@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
     redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
 
     loop {
-        app.tick_flash();
+        app.tick_flash(); =
 
         if poll(Duration::from_millis(100))? {
             match read()? {

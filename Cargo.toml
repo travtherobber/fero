@@ -10,4 +10,5 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 dirs = "5.0"
 lazy_static = "1.5"
-arboard = "3.4.0"
+arboard = "        3.4.0"
+ 
