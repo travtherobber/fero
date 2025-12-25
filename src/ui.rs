@@ -94,7 +94,7 @@ pub fn redraw_all(
         queue!(
             stdout,
             MoveTo(0, screen_y),
-            SetBackgroundColor(palette.bg),
+            SetBackgroundColor(palette.editor_background),
             Clear(ClearType::UntilNewLine)
         )?;
 
@@ -106,7 +106,7 @@ pub fn redraw_all(
                     line_num,
                     width = (gutter_width - 2) as usize
                 );
-                queue!(stdout, SetForegroundColor(palette.accent), Print(num_str))?;
+                queue!(stdout, SetForegroundColor(palette.line_number_fg), Print(num_str))?;
             }
 
             draw_line_with_selection(
@@ -215,8 +215,8 @@ fn draw_line_with_selection(
                     render_text(
                         stdout,
                         &line[start..overlap_start],
-                        palette.text,
-                        palette.bg,
+                        palette.editor_foreground,
+                        palette.editor_background,
                         keywords,
                         &palette,
                     )?;
@@ -225,8 +225,8 @@ fn draw_line_with_selection(
                 render_text(
                     stdout,
                     &line[overlap_start..overlap_end],
-                    palette.bg,
-                    palette.highlight,
+                    palette.selection_fg,
+                    palette.selection_bg,
                     None,
                     &palette,
                 )?;
@@ -235,8 +235,8 @@ fn draw_line_with_selection(
                     render_text(
                         stdout,
                         &line[overlap_end..end],
-                        palette.text,
-                        palette.bg,
+                        palette.editor_foreground,
+                        palette.editor_background,
                         keywords,
                         &palette,
                     )?;
@@ -251,8 +251,8 @@ fn draw_line_with_selection(
         render_text(
             stdout,
             &line[start..end],
-            palette.text,
-            palette.bg,
+            palette.editor_foreground,
+            palette.editor_background,
             keywords,
             &palette,
         )
@@ -284,8 +284,59 @@ fn render_text(
     }
 
     let keywords = keywords.unwrap();
-    let keyword_color = palette.primary;
+    let mut last_end = 0;
+    let mut in_string = false;
+    let mut in_comment = false;
 
+    for (i, c) in text.char_indices() {
+        if in_comment {
+            continue;
+        }
+
+        if c == '"' {
+            if i > last_end {
+                render_word_wise(stdout, &text[last_end..i], fg, bg, keywords, palette)?;
+            }
+            last_end = i;
+            in_string = !in_string;
+        } else if c == '/' && text.get(i + 1..i + 2) == Some("/") {
+            if i > last_end {
+                render_word_wise(stdout, &text[last_end..i], fg, bg, keywords, palette)?;
+            }
+            queue!(
+                stdout,
+                SetForegroundColor(palette.syntax_comment),
+                SetBackgroundColor(bg),
+                Print(&text[i..])
+            )?;
+            in_comment = true;
+        }
+    }
+
+    if !in_comment {
+        if in_string {
+            queue!(
+                stdout,
+                SetForegroundColor(palette.syntax_string),
+                SetBackgroundColor(bg),
+                Print(&text[last_end..])
+            )?;
+        } else if last_end < text.len() {
+            render_word_wise(stdout, &text[last_end..], fg, bg, keywords, palette)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn render_word_wise(
+    stdout: &mut Stdout,
+    text: &str,
+    fg: Color,
+    bg: Color,
+    keywords: &HashSet<&'static str>,
+    palette: &Palette,
+) -> std::io::Result<()> {
     let mut last_end = 0;
     for (start, end) in word_boundaries(text) {
         if start > last_end {
@@ -299,7 +350,13 @@ fn render_text(
 
         let word = &text[start..end];
         let color = if keywords.contains(word) {
-            keyword_color
+            palette.syntax_keyword
+        } else if word.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
+            palette.syntax_type
+        } else if word.parse::<f64>().is_ok() || word == "true" || word == "false" {
+            palette.syntax_constant
+        } else if text.get(end..).unwrap_or("").starts_with('(') {
+            palette.syntax_function
         } else {
             fg
         };
@@ -322,7 +379,6 @@ fn render_text(
             Print(&text[last_end..])
         )?;
     }
-
     Ok(())
 }
 
@@ -358,7 +414,7 @@ fn draw_tab_bar(
     queue!(
         stdout,
         MoveTo(0, y),
-        SetBackgroundColor(palette.panel),
+        SetBackgroundColor(palette.ui_background),
         Clear(ClearType::UntilNewLine),
         Print(" ".repeat(w as usize))
     )?;
@@ -375,7 +431,7 @@ fn draw_tab_bar(
             queue!(
                 stdout,
                 MoveTo(x, y),
-                SetForegroundColor(palette.accent),
+                SetForegroundColor(palette.accent_secondary),
                 Print("...")
             )?;
             break;
@@ -386,15 +442,15 @@ fn draw_tab_bar(
         if i == active_idx {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.accent),
-                SetForegroundColor(palette.bg),
+                SetBackgroundColor(palette.accent_primary),
+                SetForegroundColor(palette.editor_background),
                 Print(format!(" {} ", name))
             )?;
         } else {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.panel),
-                SetForegroundColor(palette.text),
+                SetBackgroundColor(palette.ui_background),
+                SetForegroundColor(palette.ui_foreground),
                 Print(format!(" {} ", name))
             )?;
         }
@@ -417,7 +473,7 @@ fn draw_header(
     queue!(
         stdout,
         MoveTo(0, 0),
-        SetBackgroundColor(palette.panel),
+        SetBackgroundColor(palette.header_bg),
         Clear(ClearType::UntilNewLine),
         Print(" ".repeat(w as usize))
     )?;
@@ -425,9 +481,9 @@ fn draw_header(
     queue!(
         stdout,
         MoveTo(2, 0),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.header_fg),
         Print(format!("{} ", APP_NAME)),
-        SetForegroundColor(palette.highlight),
+        SetForegroundColor(palette.accent_secondary),
         Print(format!("v0.2.0 — {}", filename))
     )?;
 
@@ -435,7 +491,7 @@ fn draw_header(
     queue!(
         stdout,
         MoveTo(w.saturating_sub(time.len() as u16 + 2), 0),
-        SetForegroundColor(palette.accent),
+        SetForegroundColor(palette.accent_secondary),
         Print(time)
     )?;
 
@@ -453,7 +509,7 @@ pub fn draw_menu_bar(
     queue!(
         stdout,
         MoveTo(0, y),
-        SetBackgroundColor(palette.accent),
+        SetBackgroundColor(palette.accent_secondary),
         Clear(ClearType::UntilNewLine),
         Print(" ".repeat(term_w as usize))
     )?;
@@ -472,15 +528,15 @@ pub fn draw_menu_bar(
         if tab == active_tab {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.primary),
-                SetForegroundColor(palette.bg),
+                SetBackgroundColor(palette.accent_primary),
+                SetForegroundColor(palette.editor_background),
                 Print(name)
             )?;
         } else {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.accent),
-                SetForegroundColor(palette.text),
+                SetBackgroundColor(palette.accent_secondary),
+                SetForegroundColor(palette.ui_foreground),
                 Print(name)
             )?;
         }
@@ -531,7 +587,7 @@ pub fn draw_current_dropdown(
         queue!(
             stdout,
             MoveTo(x_off, y_offset + dy),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_width as usize))
         )?;
     }
@@ -545,15 +601,15 @@ pub fn draw_current_dropdown(
         if i == active_idx {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.primary),
-                SetForegroundColor(palette.bg),
+                SetBackgroundColor(palette.accent_primary),
+                SetForegroundColor(palette.editor_background),
                 Print(item)
             )?;
         } else {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.panel),
-                SetForegroundColor(palette.text),
+                SetBackgroundColor(palette.ui_background),
+                SetForegroundColor(palette.ui_foreground),
                 Print(item)
             )?;
         }
@@ -585,7 +641,7 @@ fn draw_input_prompt(
         queue!(
             stdout,
             MoveTo(start_x, start_y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -593,7 +649,7 @@ fn draw_input_prompt(
     queue!(
         stdout,
         MoveTo(start_x + 2, start_y + 1),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.accent_primary),
         Print(title)
     )?;
 
@@ -608,7 +664,7 @@ fn draw_input_prompt(
         queue!(
             stdout,
             MoveTo(start_x + 2, start_y + 2),
-            SetForegroundColor(palette.accent),
+            SetForegroundColor(palette.accent_secondary),
             Print(format!("Path: {}", path_display))
         )?;
     }
@@ -616,8 +672,8 @@ fn draw_input_prompt(
     queue!(
         stdout,
         MoveTo(start_x + 2, start_y + 3),
-        SetForegroundColor(palette.text),
-        SetBackgroundColor(palette.panel),
+        SetForegroundColor(palette.ui_foreground),
+        SetBackgroundColor(palette.ui_background),
         Clear(ClearType::UntilNewLine),
         Print("> "),
         Print(&state.input_buffer),
@@ -626,7 +682,7 @@ fn draw_input_prompt(
     queue!(
         stdout,
         MoveTo(start_x + 2, start_y + 5),
-        SetForegroundColor(palette.accent),
+        SetForegroundColor(palette.accent_secondary),
         Print("[Enter confirm • Esc cancel]")
     )?;
 
@@ -648,7 +704,7 @@ fn draw_status_bar(
     queue!(
         stdout,
         MoveTo(0, y),
-        SetBackgroundColor(palette.panel),
+        SetBackgroundColor(palette.status_bar_bg),
         Clear(ClearType::UntilNewLine),
         Print(" ".repeat(w as usize))
     )?;
@@ -673,7 +729,7 @@ fn draw_status_bar(
         SetForegroundColor(if state.status_flash.is_some() {
             palette.warning
         } else {
-            palette.primary
+            palette.status_bar_fg
         }),
         Print(&mode_str)
     )?;
@@ -681,7 +737,7 @@ fn draw_status_bar(
     queue!(
         stdout,
         MoveTo(w.saturating_sub(right_len + 2), y),
-        SetForegroundColor(palette.text),
+        SetForegroundColor(palette.status_bar_fg),
         Print(&right_str)
     )?;
 
@@ -704,7 +760,7 @@ fn draw_help_overlay(
         queue!(
             stdout,
             MoveTo(x, y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -712,7 +768,7 @@ fn draw_help_overlay(
     queue!(
         stdout,
         MoveTo(x + 2, y + 1),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.accent_primary),
         Print("FERO HELP - KEYBINDINGS")
     )?;
 
@@ -732,9 +788,9 @@ fn draw_help_overlay(
 
     for (i, (key, desc)) in bindings.iter().enumerate() {
         queue!(stdout, MoveTo(x + 3, y + 3 + i as u16))?;
-        queue!(stdout, SetForegroundColor(palette.accent), Print(key))?;
+        queue!(stdout, SetForegroundColor(palette.accent_secondary), Print(key))?;
         queue!(stdout, MoveTo(x + 18, y + 3 + i as u16))?;
-        queue!(stdout, SetForegroundColor(palette.text), Print(desc))?;
+        queue!(stdout, SetForegroundColor(palette.ui_foreground), Print(desc))?;
     }
 
     if !state.keybind_state.custom_binds.is_empty() {
@@ -751,13 +807,13 @@ fn draw_help_overlay(
             queue!(stdout, MoveTo(x + 5, y_line))?;
             queue!(
                 stdout,
-                SetForegroundColor(palette.highlight),
+                SetForegroundColor(palette.syntax_string),
                 Print(&key_str)
             )?;
             queue!(stdout, MoveTo(x + 25, y_line))?;
             queue!(
                 stdout,
-                SetForegroundColor(palette.text),
+                SetForegroundColor(palette.ui_foreground),
                 Print(format!("{:?}", action))
             )?;
             y_line += 1;
@@ -767,7 +823,7 @@ fn draw_help_overlay(
     queue!(
         stdout,
         MoveTo(x + 2, y + box_h - 1),
-        SetForegroundColor(palette.accent),
+        SetForegroundColor(palette.accent_secondary),
         Print("Press Esc or Enter to close")
     )?;
 
@@ -791,7 +847,7 @@ fn draw_settings_overlay(
         queue!(
             stdout,
             MoveTo(x, y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -799,7 +855,7 @@ fn draw_settings_overlay(
     queue!(
         stdout,
         MoveTo(x + 2, y + 1),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.accent_primary),
         Print("SETTINGS")
     )?;
 
@@ -818,15 +874,15 @@ fn draw_settings_overlay(
         if i == idx {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.accent),
-                SetForegroundColor(palette.highlight),
+                SetBackgroundColor(palette.accent_primary),
+                SetForegroundColor(palette.editor_background),
                 Print(format!(" > {}", opt))
             )?;
         } else {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.panel),
-                SetForegroundColor(palette.text),
+                SetBackgroundColor(palette.ui_background),
+                SetForegroundColor(palette.ui_foreground),
                 Print(format!("   {}", opt))
             )?;
         }
@@ -851,7 +907,7 @@ fn draw_key_rebind_overlay(
         queue!(
             stdout,
             MoveTo(x, y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -859,7 +915,7 @@ fn draw_key_rebind_overlay(
     queue!(
         stdout,
         MoveTo(x + 2, y + 1),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.accent_primary),
         Print("KEY REBINDING")
     )?;
 
@@ -896,8 +952,8 @@ fn draw_key_rebind_overlay(
         if global_i == kb.selected_action && !kb.waiting_for_key && !kb.confirming_reset {
             queue!(
                 stdout,
-                SetBackgroundColor(palette.accent),
-                SetForegroundColor(palette.highlight),
+                SetBackgroundColor(palette.accent_primary),
+                SetForegroundColor(palette.editor_background),
                 Print("▶ ")
             )?;
         } else {
@@ -906,8 +962,8 @@ fn draw_key_rebind_overlay(
 
         queue!(
             stdout,
-            SetBackgroundColor(palette.panel),
-            SetForegroundColor(palette.text),
+            SetBackgroundColor(palette.ui_background),
+            SetForegroundColor(palette.ui_foreground),
             Print(action)
         )?;
     }
@@ -930,7 +986,7 @@ fn draw_key_rebind_overlay(
     } else {
         queue!(
             stdout,
-            SetForegroundColor(palette.accent),
+            SetForegroundColor(palette.accent_secondary),
             Print("↑↓ navigate • Enter rebind • Esc exit")
         )?;
     }
@@ -948,7 +1004,7 @@ fn draw_confirm_wipe(stdout: &mut Stdout, w: u16, h: u16, palette: Palette) -> s
         queue!(
             stdout,
             MoveTo(x, y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -956,21 +1012,21 @@ fn draw_confirm_wipe(stdout: &mut Stdout, w: u16, h: u16, palette: Palette) -> s
     queue!(
         stdout,
         MoveTo(x + 2, y + 1),
-        SetForegroundColor(palette.warning),
+        SetForegroundColor(palette.error),
         Print("WARNING: IRREVERSIBLE ACTION")
     )?;
 
     queue!(
         stdout,
         MoveTo(x + 2, y + 3),
-        SetForegroundColor(palette.text),
+        SetForegroundColor(palette.ui_foreground),
         Print("This will permanently delete all text.")
     )?;
 
     queue!(
         stdout,
         MoveTo(x + 2, y + 5),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.accent_primary),
         Print("Press Y to confirm, any other key to cancel")
     )?;
 
@@ -989,8 +1045,8 @@ fn draw_explorer(
     queue!(
         stdout,
         MoveTo(0, y_start),
-        SetBackgroundColor(palette.panel),
-        SetForegroundColor(palette.primary),
+        SetBackgroundColor(palette.ui_background),
+        SetForegroundColor(palette.accent_primary),
         Print(" FILE EXPLORER ")
     )?;
 
@@ -998,7 +1054,7 @@ fn draw_explorer(
         queue!(
             stdout,
             MoveTo(0, y_start + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(width as usize))
         )?;
 
@@ -1010,15 +1066,15 @@ fn draw_explorer(
             if file_idx == state.explorer_idx {
                 queue!(
                     stdout,
-                    SetBackgroundColor(palette.accent),
-                    SetForegroundColor(palette.highlight),
+                    SetBackgroundColor(palette.accent_primary),
+                    SetForegroundColor(palette.editor_background),
                     Print(format!("> {}", name))
                 )?;
             } else {
                 queue!(
                     stdout,
-                    SetBackgroundColor(palette.panel),
-                    SetForegroundColor(palette.text),
+                    SetBackgroundColor(palette.ui_background),
+                    SetForegroundColor(palette.ui_foreground),
                     Print(format!("  {}", name))
                 )?;
             }
@@ -1036,15 +1092,21 @@ fn draw_color_editor_overlay(
     palette: Palette,
 ) -> std::io::Result<()> {
     let box_w = 64;
-    let box_h = 16;
+    let box_h = (state.color_entries.len() + 6).min(h as usize - 2) as u16;
     let start_x = (w.saturating_sub(box_w)) / 2;
     let start_y = (h.saturating_sub(box_h)) / 2;
+    let visible_items = (box_h - 5) as usize;
+    let scroll_offset = if state.color_editor_idx >= visible_items {
+        state.color_editor_idx - visible_items + 1
+    } else {
+        0
+    };
 
     for i in 0..box_h {
         queue!(
             stdout,
             MoveTo(start_x, start_y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -1052,61 +1114,47 @@ fn draw_color_editor_overlay(
     queue!(
         stdout,
         MoveTo(start_x + 2, start_y + 1),
-        SetForegroundColor(palette.primary),
+        SetForegroundColor(palette.accent_primary),
         Print("COLOR THEME EDITOR")
     )?;
 
     queue!(
         stdout,
         MoveTo(start_x + 2, start_y + 2),
-        SetForegroundColor(palette.accent),
+        SetForegroundColor(palette.accent_secondary),
         Print("↑↓ navigate • Enter edit • Ctrl+S save • Esc exit")
     )?;
 
-    for (i, entry) in state.color_entries.iter().enumerate() {
+    for (i, entry) in state.color_entries.iter().skip(scroll_offset).take(visible_items).enumerate() {
         let y = start_y + 4 + i as u16;
+        let global_idx = i + scroll_offset;
         queue!(stdout, MoveTo(start_x + 3, y))?;
 
-        let prefix = if i == state.color_editor_idx {
-            "▶ "
-        } else {
-            "  "
-        };
-        let name_fg = if i == state.color_editor_idx {
-            palette.highlight
-        } else {
-            palette.text
-        };
-        let hex_fg = if i == state.color_editor_idx && state.editing_hex {
-            palette.primary
-        } else {
-            palette.text
-        };
+        let prefix = if global_idx == state.color_editor_idx { "▶ " } else { "  " };
+        let name_fg = if global_idx == state.color_editor_idx { palette.accent_primary } else { palette.ui_foreground };
+        let hex_fg = if global_idx == state.color_editor_idx && state.editing_hex { palette.syntax_string } else { palette.ui_foreground };
 
         queue!(
             stdout,
             SetForegroundColor(name_fg),
-            Print(format!("{}{:9}", prefix, entry.name))
+            Print(format!("{}{:20}", prefix, entry.name))
         )?;
         queue!(
             stdout,
-            MoveTo(start_x + 15, y),
+            MoveTo(start_x + 25, y),
             SetForegroundColor(hex_fg),
             Print(&entry.current_hex)
         )?;
     }
 
-    let input_y = if state.prompt_type == PromptType::SaveAs {
-        start_y + 3
-    } else {
-        start_y + 3
-    };
-    queue!(
-        stdout,
-        MoveTo(start_x + 2, input_y),
-        SetForegroundColor(palette.text),
-        Print(format!("> {}", state.input_buffer))
-    )?;
+    if state.editing_hex {
+        let y = start_y + 4 + (state.color_editor_idx - scroll_offset) as u16;
+        queue!(
+            stdout,
+            MoveTo(start_x + 25 + state.color_entries[state.color_editor_idx].current_hex.len() as u16, y),
+            SetForegroundColor(palette.cursor)
+        )?;
+    }
 
     Ok(())
 }
@@ -1127,7 +1175,7 @@ fn draw_confirm_close_tab(
         queue!(
             stdout,
             MoveTo(x, y + i),
-            SetBackgroundColor(palette.panel),
+            SetBackgroundColor(palette.ui_background),
             Print(" ".repeat(box_w as usize))
         )?;
     }
@@ -1142,7 +1190,7 @@ fn draw_confirm_close_tab(
     queue!(
         stdout,
         MoveTo(x + 2, y + 3),
-        SetForegroundColor(palette.text),
+        SetForegroundColor(palette.ui_foreground),
         Print("Save before closing?")
     )?;
 
@@ -1153,14 +1201,14 @@ fn draw_confirm_close_tab(
             stdout,
             MoveTo(x + 8, y + 5 + i as u16),
             SetBackgroundColor(if selected {
-                palette.accent
+                palette.accent_primary
             } else {
-                palette.panel
+                palette.ui_background
             }),
             SetForegroundColor(if selected {
-                palette.highlight
+                palette.editor_background
             } else {
-                palette.text
+                palette.ui_foreground
             }),
             Print(if selected { "▶ " } else { "  " }),
             Print(opt)
@@ -1170,7 +1218,7 @@ fn draw_confirm_close_tab(
     queue!(
         stdout,
         MoveTo(x + 2, y + 8),
-        SetForegroundColor(palette.accent),
+        SetForegroundColor(palette.accent_secondary),
         Print("↑↓ navigate • Enter confirm • Esc cancel")
     )?;
 
