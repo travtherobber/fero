@@ -192,28 +192,36 @@ fn handle_key_event(
                     let p = app.current_palette;
                     app.color_entries = vec![
                         ColorEntry {
-                            name: "BG".to_string(),
-                            current_hex: Palette::to_hex(p.bg),
+                            name: "EDITOR BG".to_string(),
+                            current_hex: Palette::to_hex(p.editor_bg),
                         },
                         ColorEntry {
-                            name: "PRIMARY".to_string(),
-                            current_hex: Palette::to_hex(p.primary),
+                            name: "EDITOR FG".to_string(),
+                            current_hex: Palette::to_hex(p.editor_fg),
                         },
                         ColorEntry {
-                            name: "PANEL".to_string(),
-                            current_hex: Palette::to_hex(p.panel),
+                            name: "UI BG".to_string(),
+                            current_hex: Palette::to_hex(p.ui_bg),
                         },
                         ColorEntry {
-                            name: "ACCENT".to_string(),
-                            current_hex: Palette::to_hex(p.accent),
+                            name: "UI FG".to_string(),
+                            current_hex: Palette::to_hex(p.ui_fg),
                         },
                         ColorEntry {
-                            name: "HIGHLIGHT".to_string(),
-                            current_hex: Palette::to_hex(p.highlight),
+                            name: "KEYWORD".to_string(),
+                            current_hex: Palette::to_hex(p.keyword),
                         },
                         ColorEntry {
-                            name: "TEXT".to_string(),
-                            current_hex: Palette::to_hex(p.text),
+                            name: "SELECTION BG".to_string(),
+                            current_hex: Palette::to_hex(p.selection_bg),
+                        },
+                        ColorEntry {
+                            name: "ACCENT PRIMARY".to_string(),
+                            current_hex: Palette::to_hex(p.accent_primary),
+                        },
+                        ColorEntry {
+                            name: "ACCENT SECONDARY".to_string(),
+                            current_hex: Palette::to_hex(p.accent_secondary),
                         },
                         ColorEntry {
                             name: "WARNING".to_string(),
@@ -407,22 +415,10 @@ fn handle_key_event(
                     } else {
                         match editor::load_from_file(full_path.to_str().unwrap_or(&selected)) {
                             Ok(lines) => {
-                                let current_modified = app.current_buffer().modified;
-                                let current_empty =
-                                    app.current_buffer().lines == vec![String::new()];
-                                if current_modified || !current_empty {
-                                    app.buffers.push(Buffer::new("unsaved.txt".to_string()));
-                                    app.active_buffer = app.buffers.len() - 1;
-                                } else {
-                                    let buf = app.current_buffer_mut();
-                                    buf.lines = lines;
-                                    buf.filename = clean_name.to_string();
-                                    buf.cursor_x = 0;
-                                    buf.cursor_y = 0;
-                                    buf.viewport_offset_y = 0;
-                                    buf.viewport_offset_x = 0;
-                                    buf.modified = false;
-                                }
+                                let mut new_buffer = Buffer::new(clean_name.to_string());
+                                new_buffer.lines = lines;
+                                app.buffers.push(new_buffer);
+                                app.active_buffer = app.buffers.len() - 1;
                                 *mode = Mode::Editing;
                             }
                             Err(e) => {
@@ -438,7 +434,7 @@ fn handle_key_event(
                     let _ = refresh_explorer(app);
                 }
             }
-            KeyCode::Esc => *mode = Mode::Editing,
+            KeyCode::Esc => *mode = Mode::Menu,
             _ => {}
         },
 
@@ -1057,12 +1053,14 @@ fn parse_palette_from_entries(entries: &[ColorEntry]) -> Result<Palette, ()> {
             ) {
                 let color = crossterm::style::Color::Rgb { r, g, b };
                 match e.name.as_str() {
-                    "BG" => p.bg = color,
-                    "PRIMARY" => p.primary = color,
-                    "PANEL" => p.panel = color,
-                    "ACCENT" => p.accent = color,
-                    "HIGHLIGHT" => p.highlight = color,
-                    "TEXT" => p.text = color,
+                    "EDITOR BG" => p.editor_bg = color,
+                    "EDITOR FG" => p.editor_fg = color,
+                    "UI BG" => p.ui_bg = color,
+                    "UI FG" => p.ui_fg = color,
+                    "KEYWORD" => p.keyword = color,
+                    "SELECTION BG" => p.selection_bg = color,
+                    "ACCENT PRIMARY" => p.accent_primary = color,
+                    "ACCENT SECONDARY" => p.accent_secondary = color,
                     "WARNING" => p.warning = color,
                     _ => {}
                 }
