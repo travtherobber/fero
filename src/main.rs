@@ -5,7 +5,7 @@ mod ui;
 
 use crate::state::{
     AppState, Buffer, ColorEntry, Config, ConfirmChoice, ConfirmType, KeyCombo, KeybindAction,
-    MenuTab, Mode, Palette, PromptType, Selection, UndoState, APP_NAME,
+    MenuTab, Mode, Palette, PaletteConfig, PromptType, Selection, UndoState, APP_NAME,
 };
 use crate::ui::redraw_all;
 
@@ -189,45 +189,7 @@ fn handle_key_event(
                     let _ = config::save_config(config);
                 }
                 2 => {
-                    let p = app.current_palette;
-                    app.color_entries = vec![
-                        ColorEntry {
-                            name: "EDITOR BG".to_string(),
-                            current_hex: Palette::to_hex(p.editor_bg),
-                        },
-                        ColorEntry {
-                            name: "EDITOR FG".to_string(),
-                            current_hex: Palette::to_hex(p.editor_fg),
-                        },
-                        ColorEntry {
-                            name: "UI BG".to_string(),
-                            current_hex: Palette::to_hex(p.ui_bg),
-                        },
-                        ColorEntry {
-                            name: "UI FG".to_string(),
-                            current_hex: Palette::to_hex(p.ui_fg),
-                        },
-                        ColorEntry {
-                            name: "KEYWORD".to_string(),
-                            current_hex: Palette::to_hex(p.keyword),
-                        },
-                        ColorEntry {
-                            name: "SELECTION BG".to_string(),
-                            current_hex: Palette::to_hex(p.selection_bg),
-                        },
-                        ColorEntry {
-                            name: "ACCENT PRIMARY".to_string(),
-                            current_hex: Palette::to_hex(p.accent_primary),
-                        },
-                        ColorEntry {
-                            name: "ACCENT SECONDARY".to_string(),
-                            current_hex: Palette::to_hex(p.accent_secondary),
-                        },
-                        ColorEntry {
-                            name: "WARNING".to_string(),
-                            current_hex: Palette::to_hex(p.warning),
-                        },
-                    ];
+                    app.populate_color_entries();
                     app.color_editor_idx = 0;
                     app.editing_hex = false;
                     *mode = Mode::ColorEditor;
@@ -1043,31 +1005,41 @@ fn refresh_explorer(app: &mut AppState) -> std::io::Result<()> {
 }
 
 fn parse_palette_from_entries(entries: &[ColorEntry]) -> Result<Palette, ()> {
-    let mut p = Palette::default();
+    let mut config = PaletteConfig::default();
     for e in entries {
         if e.current_hex.len() == 7 && e.current_hex.starts_with('#') {
-            if let (Ok(r), Ok(g), Ok(b)) = (
-                u8::from_str_radix(&e.current_hex[1..3], 16),
-                u8::from_str_radix(&e.current_hex[3..5], 16),
-                u8::from_str_radix(&e.current_hex[5..7], 16),
-            ) {
-                let color = crossterm::style::Color::Rgb { r, g, b };
-                match e.name.as_str() {
-                    "EDITOR BG" => p.editor_bg = color,
-                    "EDITOR FG" => p.editor_fg = color,
-                    "UI BG" => p.ui_bg = color,
-                    "UI FG" => p.ui_fg = color,
-                    "KEYWORD" => p.keyword = color,
-                    "SELECTION BG" => p.selection_bg = color,
-                    "ACCENT PRIMARY" => p.accent_primary = color,
-                    "ACCENT SECONDARY" => p.accent_secondary = color,
-                    "WARNING" => p.warning = color,
-                    _ => {}
-                }
+            let hex_val = e.current_hex.clone();
+            match e.name.as_str() {
+                "ui_background" => config.ui_background = hex_val,
+                "ui_foreground" => config.ui_foreground = hex_val,
+                "ui_border" => config.ui_border = hex_val,
+                "status_bar_bg" => config.status_bar_bg = hex_val,
+                "status_bar_fg" => config.status_bar_fg = hex_val,
+                "header_bg" => config.header_bg = hex_val,
+                "header_fg" => config.header_fg = hex_val,
+                "editor_background" => config.editor_background = hex_val,
+                "editor_foreground" => config.editor_foreground = hex_val,
+                "line_number_bg" => config.line_number_bg = hex_val,
+                "line_number_fg" => config.line_number_fg = hex_val,
+                "cursor" => config.cursor = hex_val,
+                "selection_bg" => config.selection_bg = hex_val,
+                "selection_fg" => config.selection_fg = hex_val,
+                "syntax_keyword" => config.syntax_keyword = hex_val,
+                "syntax_string" => config.syntax_string = hex_val,
+                "syntax_comment" => config.syntax_comment = hex_val,
+                "syntax_function" => config.syntax_function = hex_val,
+                "syntax_type" => config.syntax_type = hex_val,
+                "syntax_constant" => config.syntax_constant = hex_val,
+                "accent_primary" => config.accent_primary = hex_val,
+                "accent_secondary" => config.accent_secondary = hex_val,
+                "match_highlight" => config.match_highlight = hex_val,
+                "error" => config.error = hex_val,
+                "warning" => config.warning = hex_val,
+                _ => {}
             }
         }
     }
-    Ok(p)
+    Ok(Palette::from_config(&config))
 }
 
 fn handle_menu_selection(
