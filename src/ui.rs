@@ -578,8 +578,11 @@ fn draw_input_prompt(
     state: &AppState,
     palette: Palette,
 ) -> std::io::Result<()> {
+    if state.prompt_type == PromptType::SaveAs {
+        return draw_save_as_explorer(stdout, w, h, state, palette);
+    }
+
     let title = match state.prompt_type {
-        PromptType::SaveAs => "SAVE AS",
         PromptType::Find => "FIND TEXT",
         PromptType::GoToLine => "GO TO LINE",
         _ => "INPUT",
@@ -605,22 +608,6 @@ fn draw_input_prompt(
         SetForegroundColor(palette.keyword),
         Print(title)
     )?;
-
-    if state.prompt_type == PromptType::SaveAs {
-        let path_display = if state.input_buffer.is_empty() {
-            format!("{}", state.current_dir.display())
-        } else {
-            let p = state.current_dir.join(&state.input_buffer);
-            format!("{}", p.display())
-        };
-
-        queue!(
-            stdout,
-            MoveTo(start_x + 2, start_y + 2),
-            SetForegroundColor(palette.accent_primary),
-            Print(format!("Path: {}", path_display))
-        )?;
-    }
 
     queue!(
         stdout,
@@ -1185,6 +1172,109 @@ fn draw_confirm_close_tab(
         MoveTo(x + 2, y + 8),
         SetForegroundColor(palette.accent_primary),
         Print("↑↓ navigate • Enter confirm • Esc cancel")
+    )?;
+
+    Ok(())
+}
+
+fn draw_save_as_explorer(
+    stdout: &mut Stdout,
+    w: u16,
+    h: u16,
+    state: &AppState,
+    palette: Palette,
+) -> std::io::Result<()> {
+    let box_w = 50;
+    let box_h = 16;
+    let start_x = (w.saturating_sub(box_w)) / 2;
+    let start_y = (h.saturating_sub(box_h)) / 2;
+
+    for i in 0..box_h {
+        queue!(
+            stdout,
+            MoveTo(start_x, start_y + i),
+            SetBackgroundColor(palette.ui_bg),
+            Print(" ".repeat(box_w as usize))
+        )?;
+    }
+
+    queue!(
+        stdout,
+        MoveTo(start_x + 2, start_y + 1),
+        SetForegroundColor(palette.keyword),
+        Print("SAVE AS")
+    )?;
+
+    // Path
+    let path_display = format!("{}", state.current_dir.display());
+    queue!(
+        stdout,
+        MoveTo(start_x + 2, start_y + 2),
+        SetForegroundColor(palette.accent_primary),
+        Print(format!("Path: {}", path_display))
+    )?;
+
+    // Explorer List
+    let list_start_y = start_y + 4;
+    let list_height = 8;
+    let list_width = box_w - 4;
+
+    for i in 0..list_height {
+        let file_idx = state.explorer_offset + i as usize;
+        let y = list_start_y + i;
+
+        queue!(stdout, MoveTo(start_x + 2, y))?;
+
+        if file_idx < state.explorer_files.len() {
+            let name = &state.explorer_files[file_idx];
+            // Truncate if too long
+            let display_name = if name.len() > list_width as usize {
+                format!("{}...", &name[..list_width as usize - 3])
+            } else {
+                name.clone()
+            };
+
+            if file_idx == state.explorer_idx {
+                queue!(
+                    stdout,
+                    SetBackgroundColor(palette.accent_primary),
+                    SetForegroundColor(palette.selection_bg),
+                    Print(format!("{:width$}", display_name, width = list_width as usize))
+                )?;
+            } else {
+                queue!(
+                    stdout,
+                    SetBackgroundColor(palette.ui_bg),
+                    SetForegroundColor(palette.ui_fg),
+                    Print(format!("{:width$}", display_name, width = list_width as usize))
+                )?;
+            }
+        } else {
+            queue!(
+                stdout,
+                SetBackgroundColor(palette.ui_bg),
+                Print(" ".repeat(list_width as usize))
+            )?;
+        }
+    }
+
+    // Input Field
+    queue!(
+        stdout,
+        MoveTo(start_x + 2, start_y + 13),
+        SetForegroundColor(palette.ui_fg),
+        SetBackgroundColor(palette.ui_bg),
+        Clear(ClearType::UntilNewLine),
+        Print("> "),
+        Print(&state.input_buffer),
+    )?;
+
+    // Hints
+    queue!(
+        stdout,
+        MoveTo(start_x + 2, start_y + 14),
+        SetForegroundColor(palette.accent_primary),
+        Print("Enter save/nav • Tab select • Esc cancel")
     )?;
 
     Ok(())

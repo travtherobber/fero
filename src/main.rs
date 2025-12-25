@@ -959,15 +959,68 @@ fn update_viewport(app: &mut AppState, config: &Config) {
 }
 
 fn handle_prompt_input(app: &mut AppState, code: KeyCode, _mode: &mut Mode, config: &Config) {
-    match code {
-        KeyCode::Esc => {
-            app.input_mode = false;
-            app.input_buffer.clear();
-        }
-        KeyCode::Enter => {
-            let input = app.input_buffer.clone();
-            match app.prompt_type {
-                PromptType::SaveAs => {
+    if app.prompt_type == PromptType::SaveAs {
+        match code {
+            KeyCode::Esc => {
+                app.input_mode = false;
+                app.input_buffer.clear();
+            }
+            KeyCode::Up => {
+                if app.explorer_idx > 0 {
+                    app.explorer_idx -= 1;
+                    if app.explorer_idx < app.explorer_offset {
+                        app.explorer_offset = app.explorer_idx;
+                    }
+                }
+            }
+            KeyCode::Down => {
+                if app.explorer_idx < app.explorer_files.len().saturating_sub(1) {
+                    app.explorer_idx += 1;
+                    // Visible height in Save As modal is 8
+                    let visible = 8;
+                    if app.explorer_idx >= app.explorer_offset + visible {
+                        app.explorer_offset = app.explorer_idx - visible + 1;
+                    }
+                }
+            }
+            KeyCode::Tab => {
+                if let Some(selected) = app.explorer_files.get(app.explorer_idx) {
+                    if !selected.starts_with("📁") {
+                        let clean_name = selected.trim_start_matches("📄 ");
+                        app.input_buffer = clean_name.to_string();
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                // If directory is selected, navigate
+                if let Some(selected) = app.explorer_files.get(app.explorer_idx).cloned() {
+                    let clean_name = selected.trim_start_matches("📁 ").trim_start_matches("📄 ");
+                    let is_dir = selected.starts_with("📁");
+
+                    if is_dir {
+                        if clean_name == ".." {
+                            if let Some(parent) = app.current_dir.parent() {
+                                app.current_dir = parent.to_path_buf();
+                                let _ = refresh_explorer(app);
+                                app.explorer_idx = 0;
+                                app.explorer_offset = 0;
+                            }
+                        } else {
+                            let full_path = app.current_dir.join(clean_name);
+                            if full_path.is_dir() {
+                                app.current_dir = full_path;
+                                let _ = refresh_explorer(app);
+                                app.explorer_idx = 0;
+                                app.explorer_offset = 0;
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Otherwise save using input buffer
+                let input = app.input_buffer.clone();
+                if !input.is_empty() {
                     app.input_buffer.clear();
                     app.input_mode = false;
                     let buf = app.current_buffer_mut();
@@ -979,6 +1032,24 @@ fn handle_prompt_input(app: &mut AppState, code: KeyCode, _mode: &mut Mode, conf
                         app.flash_status("SAVED".to_string());
                     }
                 }
+            }
+            KeyCode::Char(c) => app.input_buffer.push(c),
+            KeyCode::Backspace => {
+                app.input_buffer.pop();
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    match code {
+        KeyCode::Esc => {
+            app.input_mode = false;
+            app.input_buffer.clear();
+        }
+        KeyCode::Enter => {
+            let input = app.input_buffer.clone();
+            match app.prompt_type {
                 PromptType::GoToLine => {
                     if let Ok(num) = input.parse::<usize>() {
                         let target = num.saturating_sub(1);
@@ -1018,6 +1089,11 @@ fn handle_prompt_input(app: &mut AppState, code: KeyCode, _mode: &mut Mode, conf
 
 fn refresh_explorer(app: &mut AppState) -> std::io::Result<()> {
     let mut files = Vec::new();
+
+    if app.current_dir.parent().is_some() {
+        files.push("📁 ..".to_string());
+    }
+
     for entry in fs::read_dir(&app.current_dir)?.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with('.') {
@@ -1122,7 +1198,14 @@ fn handle_menu_selection(
             }
             5 => {
                 let buf = app.current_buffer();
-                app.input_buffer = format!("./{}", buf.filename);
+                app.input_buffer = std::path::Path::new(&buf.filename)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let _ = refresh_explorer(app);
+                app.explorer_idx = 0;
+                app.explorer_offset = 0;
                 app.prompt_type = PromptType::SaveAs;
                 app.input_mode = true;
 
