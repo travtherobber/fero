@@ -56,13 +56,12 @@ fn main() -> std::io::Result<()> {
     redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
 
     loop {
-        app.tick_flash(); 
+        let mut needs_redraw = false;
 
         if poll(Duration::from_millis(100))? {
             match read()? {
                 Event::Resize(_, _) => {
-                    update_viewport(&mut app, &config);
-                    redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
+                    needs_redraw = true;
                 }
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     handle_key_event(
@@ -74,12 +73,20 @@ fn main() -> std::io::Result<()> {
                         &mut config,
                         &mut stdout,
                     )?;
+                    needs_redraw = true;
                 }
                 _ => {}
             }
         }
-        update_viewport(&mut app, &config);
-        redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
+
+        if app.tick_flash() {
+            needs_redraw = true;
+        }
+
+        if needs_redraw {
+            update_viewport(&mut app, &config);
+            redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
+        }
     }
 }
 
@@ -108,41 +115,51 @@ fn handle_key_event(
             }
         }
 
-        Mode::Confirm(ConfirmType::CloseTab) => match key.code {
-            KeyCode::Up | KeyCode::Left => {
-                app.confirm_choice = match app.confirm_choice {
-                    ConfirmChoice::No => ConfirmChoice::Cancel,
-                    ConfirmChoice::Yes => ConfirmChoice::No,
-                    ConfirmChoice::Cancel => ConfirmChoice::Yes,
-                };
-            }
-            KeyCode::Down | KeyCode::Right => {
-                app.confirm_choice = match app.confirm_choice {
-                    ConfirmChoice::No => ConfirmChoice::Yes,
-                    ConfirmChoice::Yes => ConfirmChoice::Cancel,
-                    ConfirmChoice::Cancel => ConfirmChoice::No,
-                };
-            }
-            KeyCode::Enter => {
-                match app.confirm_choice {
-                    ConfirmChoice::Yes => {
-                        let filename = app.current_buffer().filename.clone();
-                        let lines = app.current_buffer().lines.clone();
-                        let _ = editor::save_to_file(&lines, &filename);
-                        close_current_tab(app);
-                    }
-                    ConfirmChoice::No => close_current_tab(app),
-                    ConfirmChoice::Cancel => {}
+        Mode::Confirm(ConfirmType::CloseTab) => {
+            let mut close_tab = false;
+            let mut save_and_close = false;
+            let mut needs_redraw = true;
+
+            match key.code {
+                KeyCode::Up | KeyCode::Left => {
+                    app.confirm_choice = match app.confirm_choice {
+                        ConfirmChoice::No => ConfirmChoice::Cancel,
+                        ConfirmChoice::Yes => ConfirmChoice::No,
+                        ConfirmChoice::Cancel => ConfirmChoice::Yes,
+                    };
                 }
-                app.confirm_mode = None;
-                *mode = Mode::Editing;
+                KeyCode::Down | KeyCode::Right => {
+                    app.confirm_choice = match app.confirm_choice {
+                        ConfirmChoice::No => ConfirmChoice::Yes,
+                        ConfirmChoice::Yes => ConfirmChoice::Cancel,
+                        ConfirmChoice::Cancel => ConfirmChoice::No,
+                    };
+                }
+                KeyCode::Enter => {
+                    match app.confirm_choice {
+                        ConfirmChoice::Yes => save_and_close = true,
+                        ConfirmChoice::No => close_tab = true,
+                        ConfirmChoice::Cancel => {}
+                    }
+                    app.confirm_mode = None;
+                    *mode = Mode::Editing;
+                }
+                KeyCode::Esc => {
+                    app.confirm_mode = None;
+                    *mode = Mode::Editing;
+                }
+                _ => needs_redraw = false,
             }
-            KeyCode::Esc => {
-                app.confirm_mode = None;
-                *mode = Mode::Editing;
+
+            if save_and_close {
+                save_and_close_tab(app);
+            } else if close_tab {
+                close_current_tab(app);
             }
-            _ => {}
-        },
+            if needs_redraw {
+                redraw_all(stdout, *mode, config, app, *active_tab, *dropdown_idx)?;
+            }
+        }
 
         Mode::Help => {
             if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
@@ -175,28 +192,36 @@ fn handle_key_event(
                     let p = app.current_palette;
                     app.color_entries = vec![
                         ColorEntry {
-                            name: "BG".to_string(),
-                            current_hex: Palette::to_hex(p.bg),
+                            name: "EDITOR BG".to_string(),
+                            current_hex: Palette::to_hex(p.editor_bg),
                         },
                         ColorEntry {
-                            name: "PRIMARY".to_string(),
-                            current_hex: Palette::to_hex(p.primary),
+                            name: "EDITOR FG".to_string(),
+                            current_hex: Palette::to_hex(p.editor_fg),
                         },
                         ColorEntry {
-                            name: "PANEL".to_string(),
-                            current_hex: Palette::to_hex(p.panel),
+                            name: "UI BG".to_string(),
+                            current_hex: Palette::to_hex(p.ui_bg),
                         },
                         ColorEntry {
-                            name: "ACCENT".to_string(),
-                            current_hex: Palette::to_hex(p.accent),
+                            name: "UI FG".to_string(),
+                            current_hex: Palette::to_hex(p.ui_fg),
                         },
                         ColorEntry {
-                            name: "HIGHLIGHT".to_string(),
-                            current_hex: Palette::to_hex(p.highlight),
+                            name: "KEYWORD".to_string(),
+                            current_hex: Palette::to_hex(p.keyword),
                         },
                         ColorEntry {
-                            name: "TEXT".to_string(),
-                            current_hex: Palette::to_hex(p.text),
+                            name: "SELECTION BG".to_string(),
+                            current_hex: Palette::to_hex(p.selection_bg),
+                        },
+                        ColorEntry {
+                            name: "ACCENT PRIMARY".to_string(),
+                            current_hex: Palette::to_hex(p.accent_primary),
+                        },
+                        ColorEntry {
+                            name: "ACCENT SECONDARY".to_string(),
+                            current_hex: Palette::to_hex(p.accent_secondary),
                         },
                         ColorEntry {
                             name: "WARNING".to_string(),
@@ -390,22 +415,10 @@ fn handle_key_event(
                     } else {
                         match editor::load_from_file(full_path.to_str().unwrap_or(&selected)) {
                             Ok(lines) => {
-                                let current_modified = app.current_buffer().modified;
-                                let current_empty =
-                                    app.current_buffer().lines == vec![String::new()];
-                                if current_modified || !current_empty {
-                                    app.buffers.push(Buffer::new("unsaved.txt".to_string()));
-                                    app.active_buffer = app.buffers.len() - 1;
-                                } else {
-                                    let buf = app.current_buffer_mut();
-                                    buf.lines = lines;
-                                    buf.filename = clean_name.to_string();
-                                    buf.cursor_x = 0;
-                                    buf.cursor_y = 0;
-                                    buf.viewport_offset_y = 0;
-                                    buf.viewport_offset_x = 0;
-                                    buf.modified = false;
-                                }
+                                let mut new_buffer = Buffer::new(clean_name.to_string());
+                                new_buffer.lines = lines;
+                                app.buffers.push(new_buffer);
+                                app.active_buffer = app.buffers.len() - 1;
                                 *mode = Mode::Editing;
                             }
                             Err(e) => {
@@ -421,7 +434,7 @@ fn handle_key_event(
                     let _ = refresh_explorer(app);
                 }
             }
-            KeyCode::Esc => *mode = Mode::Editing,
+            KeyCode::Esc => *mode = Mode::Menu,
             _ => {}
         },
 
@@ -499,6 +512,16 @@ fn save_keybind_to_config(config: &mut Config, combo: &KeyCombo, action: Keybind
 
     config.custom_keybinds.retain(|(k, _)| k != &combo_str);
     config.custom_keybinds.push((combo_str, action_str));
+}
+
+fn save_and_close_tab(app: &mut AppState) {
+    let filename = app.current_buffer().filename.clone();
+    let lines = app.current_buffer().lines.clone();
+    if let Err(e) = editor::save_to_file(&lines, &filename) {
+        app.flash_status(format!("SAVE FAILED: {}", e));
+        return;
+    }
+    close_current_tab(app);
 }
 
 fn close_current_tab(app: &mut AppState) {
@@ -1030,12 +1053,14 @@ fn parse_palette_from_entries(entries: &[ColorEntry]) -> Result<Palette, ()> {
             ) {
                 let color = crossterm::style::Color::Rgb { r, g, b };
                 match e.name.as_str() {
-                    "BG" => p.bg = color,
-                    "PRIMARY" => p.primary = color,
-                    "PANEL" => p.panel = color,
-                    "ACCENT" => p.accent = color,
-                    "HIGHLIGHT" => p.highlight = color,
-                    "TEXT" => p.text = color,
+                    "EDITOR BG" => p.editor_bg = color,
+                    "EDITOR FG" => p.editor_fg = color,
+                    "UI BG" => p.ui_bg = color,
+                    "UI FG" => p.ui_fg = color,
+                    "KEYWORD" => p.keyword = color,
+                    "SELECTION BG" => p.selection_bg = color,
+                    "ACCENT PRIMARY" => p.accent_primary = color,
+                    "ACCENT SECONDARY" => p.accent_secondary = color,
                     "WARNING" => p.warning = color,
                     _ => {}
                 }

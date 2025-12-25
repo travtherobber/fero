@@ -179,56 +179,42 @@ impl KeyCombo {
         if parts.len() != 2 {
             return None;
         }
-        let mods = parts[0];
-        let code = parts[1];
+        let mods_str = parts[0];
+        let code_str = parts[1];
 
-        let mut m = KeyModifiers::empty();
-        if mods.contains("CONTROL") {
-            m |= KeyModifiers::CONTROL;
+        let mut modifiers = KeyModifiers::empty();
+        if mods_str.contains("CONTROL") {
+            modifiers |= KeyModifiers::CONTROL;
         }
-        if mods.contains("SHIFT") {
-            m |= KeyModifiers::SHIFT;
+        if mods_str.contains("SHIFT") {
+            modifiers |= KeyModifiers::SHIFT;
         }
-        if mods.contains("ALT") {
-            m |= KeyModifiers::ALT;
+        if mods_str.contains("ALT") {
+            modifiers |= KeyModifiers::ALT;
         }
 
-        let kc = if code.starts_with("Char(") {
-            if let Some(ch_part) = code.strip_prefix("Char('") {
-                if let Some(end) = ch_part.find("')") {
-                    let chs = &ch_part[..end];
-                    chs.chars().next().map_or(KeyCode::Char(' '), KeyCode::Char)
-                } else {
-                    KeyCode::Char(' ')
-                }
-            } else {
-                KeyCode::Char(' ')
-            }
-        } else if code.contains("Enter") {
-            KeyCode::Enter
-        } else if code.contains("Backspace") {
-            KeyCode::Backspace
-        } else if code.contains("Tab") {
-            KeyCode::Tab
-        } else if code.contains("Left") {
-            KeyCode::Left
-        } else if code.contains("Right") {
-            KeyCode::Right
-        } else if code.contains("Up") {
-            KeyCode::Up
-        } else if code.contains("Down") {
-            KeyCode::Down
-        } else if code.contains("Delete") {
-            KeyCode::Delete
-        } else if code.contains("Esc") || code.contains("Esc") {
-            KeyCode::Esc
+        let code = if let Some(char_part) =
+            code_str.strip_prefix("Char('").and_then(|s| s.strip_suffix("')"))
+        {
+            char_part.chars().next().map(KeyCode::Char)
         } else {
-            KeyCode::Char(' ')
+            match code_str {
+                "Enter" => Some(KeyCode::Enter),
+                "Backspace" => Some(KeyCode::Backspace),
+                "Tab" => Some(KeyCode::Tab),
+                "Left" => Some(KeyCode::Left),
+                "Right" => Some(KeyCode::Right),
+                "Up" => Some(KeyCode::Up),
+                "Down" => Some(KeyCode::Down),
+                "Delete" => Some(KeyCode::Delete),
+                "Esc" => Some(KeyCode::Esc),
+                _ => None,
+            }
         };
 
-        Some(KeyCombo {
-            code: kc,
-            modifiers: m,
+        code.map(|c| KeyCombo {
+            code: c,
+            modifiers,
         })
     }
 }
@@ -283,24 +269,28 @@ impl FromStr for KeybindAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaletteConfig {
-    pub bg: String,
-    pub primary: String,
-    pub panel: String,
-    pub accent: String,
-    pub highlight: String,
-    pub text: String,
+    pub editor_bg: String,
+    pub editor_fg: String,
+    pub ui_bg: String,
+    pub ui_fg: String,
+    pub keyword: String,
+    pub selection_bg: String,
+    pub accent_primary: String,
+    pub accent_secondary: String,
     pub warning: String,
 }
 
 impl Default for PaletteConfig {
     fn default() -> Self {
         Self {
-            bg: "#0A0F0B".to_string(),
-            primary: "#18FF6D".to_string(),
-            panel: "#0E3B2A".to_string(),
-            accent: "#1F7A4A".to_string(),
-            highlight: "#9DFFB8".to_string(),
-            text: "#F2FFE9".to_string(),
+            editor_bg: "#0A0F0B".to_string(),
+            editor_fg: "#F2FFE9".to_string(),
+            ui_bg: "#0E3B2A".to_string(),
+            ui_fg: "#F2FFE9".to_string(),
+            keyword: "#18FF6D".to_string(),
+            selection_bg: "#9DFFB8".to_string(),
+            accent_primary: "#1F7A4A".to_string(),
+            accent_secondary: "#18FF6D".to_string(),
             warning: "#FF8C1A".to_string(),
         }
     }
@@ -308,12 +298,14 @@ impl Default for PaletteConfig {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {
-    pub bg: Color,
-    pub primary: Color,
-    pub panel: Color,
-    pub accent: Color,
-    pub highlight: Color,
-    pub text: Color,
+    pub editor_bg: Color,
+    pub editor_fg: Color,
+    pub ui_bg: Color,
+    pub ui_fg: Color,
+    pub keyword: Color,
+    pub selection_bg: Color,
+    pub accent_primary: Color,
+    pub accent_secondary: Color,
     pub warning: Color,
 }
 
@@ -324,24 +316,28 @@ impl Palette {
 
     pub fn from_config(cfg: &PaletteConfig) -> Self {
         Self {
-            bg: Self::hex_to_color(&cfg.bg),
-            primary: Self::hex_to_color(&cfg.primary),
-            panel: Self::hex_to_color(&cfg.panel),
-            accent: Self::hex_to_color(&cfg.accent),
-            highlight: Self::hex_to_color(&cfg.highlight),
-            text: Self::hex_to_color(&cfg.text),
+            editor_bg: Self::hex_to_color(&cfg.editor_bg),
+            editor_fg: Self::hex_to_color(&cfg.editor_fg),
+            ui_bg: Self::hex_to_color(&cfg.ui_bg),
+            ui_fg: Self::hex_to_color(&cfg.ui_fg),
+            keyword: Self::hex_to_color(&cfg.keyword),
+            selection_bg: Self::hex_to_color(&cfg.selection_bg),
+            accent_primary: Self::hex_to_color(&cfg.accent_primary),
+            accent_secondary: Self::hex_to_color(&cfg.accent_secondary),
             warning: Self::hex_to_color(&cfg.warning),
         }
     }
 
     pub fn to_config(&self) -> PaletteConfig {
         PaletteConfig {
-            bg: Self::to_hex(self.bg),
-            primary: Self::to_hex(self.primary),
-            panel: Self::to_hex(self.panel),
-            accent: Self::to_hex(self.accent),
-            highlight: Self::to_hex(self.highlight),
-            text: Self::to_hex(self.text),
+            editor_bg: Self::to_hex(self.editor_bg),
+            editor_fg: Self::to_hex(self.editor_fg),
+            ui_bg: Self::to_hex(self.ui_bg),
+            ui_fg: Self::to_hex(self.ui_fg),
+            keyword: Self::to_hex(self.keyword),
+            selection_bg: Self::to_hex(self.selection_bg),
+            accent_primary: Self::to_hex(self.accent_primary),
+            accent_secondary: Self::to_hex(self.accent_secondary),
             warning: Self::to_hex(self.warning),
         }
     }
@@ -557,13 +553,15 @@ impl AppState {
         self.status_flash_timer = 20;
     }
 
-    pub fn tick_flash(&mut self) {
+    pub fn tick_flash(&mut self) -> bool {
         if self.status_flash_timer > 0 {
             self.status_flash_timer -= 1;
             if self.status_flash_timer == 0 {
                 self.status_flash = None;
+                return true;
             }
         }
+        false
     }
 }
   
