@@ -179,56 +179,42 @@ impl KeyCombo {
         if parts.len() != 2 {
             return None;
         }
-        let mods = parts[0];
-        let code = parts[1];
+        let mods_str = parts[0];
+        let code_str = parts[1];
 
-        let mut m = KeyModifiers::empty();
-        if mods.contains("CONTROL") {
-            m |= KeyModifiers::CONTROL;
+        let mut modifiers = KeyModifiers::empty();
+        if mods_str.contains("CONTROL") {
+            modifiers |= KeyModifiers::CONTROL;
         }
-        if mods.contains("SHIFT") {
-            m |= KeyModifiers::SHIFT;
+        if mods_str.contains("SHIFT") {
+            modifiers |= KeyModifiers::SHIFT;
         }
-        if mods.contains("ALT") {
-            m |= KeyModifiers::ALT;
+        if mods_str.contains("ALT") {
+            modifiers |= KeyModifiers::ALT;
         }
 
-        let kc = if code.starts_with("Char(") {
-            if let Some(ch_part) = code.strip_prefix("Char('") {
-                if let Some(end) = ch_part.find("')") {
-                    let chs = &ch_part[..end];
-                    chs.chars().next().map_or(KeyCode::Char(' '), KeyCode::Char)
-                } else {
-                    KeyCode::Char(' ')
-                }
-            } else {
-                KeyCode::Char(' ')
-            }
-        } else if code.contains("Enter") {
-            KeyCode::Enter
-        } else if code.contains("Backspace") {
-            KeyCode::Backspace
-        } else if code.contains("Tab") {
-            KeyCode::Tab
-        } else if code.contains("Left") {
-            KeyCode::Left
-        } else if code.contains("Right") {
-            KeyCode::Right
-        } else if code.contains("Up") {
-            KeyCode::Up
-        } else if code.contains("Down") {
-            KeyCode::Down
-        } else if code.contains("Delete") {
-            KeyCode::Delete
-        } else if code.contains("Esc") || code.contains("Esc") {
-            KeyCode::Esc
+        let code = if let Some(char_part) =
+            code_str.strip_prefix("Char('").and_then(|s| s.strip_suffix("')"))
+        {
+            char_part.chars().next().map(KeyCode::Char)
         } else {
-            KeyCode::Char(' ')
+            match code_str {
+                "Enter" => Some(KeyCode::Enter),
+                "Backspace" => Some(KeyCode::Backspace),
+                "Tab" => Some(KeyCode::Tab),
+                "Left" => Some(KeyCode::Left),
+                "Right" => Some(KeyCode::Right),
+                "Up" => Some(KeyCode::Up),
+                "Down" => Some(KeyCode::Down),
+                "Delete" => Some(KeyCode::Delete),
+                "Esc" => Some(KeyCode::Esc),
+                _ => None,
+            }
         };
 
-        Some(KeyCombo {
-            code: kc,
-            modifiers: m,
+        code.map(|c| KeyCombo {
+            code: c,
+            modifiers,
         })
     }
 }

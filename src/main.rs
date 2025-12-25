@@ -108,41 +108,51 @@ fn handle_key_event(
             }
         }
 
-        Mode::Confirm(ConfirmType::CloseTab) => match key.code {
-            KeyCode::Up | KeyCode::Left => {
-                app.confirm_choice = match app.confirm_choice {
-                    ConfirmChoice::No => ConfirmChoice::Cancel,
-                    ConfirmChoice::Yes => ConfirmChoice::No,
-                    ConfirmChoice::Cancel => ConfirmChoice::Yes,
-                };
-            }
-            KeyCode::Down | KeyCode::Right => {
-                app.confirm_choice = match app.confirm_choice {
-                    ConfirmChoice::No => ConfirmChoice::Yes,
-                    ConfirmChoice::Yes => ConfirmChoice::Cancel,
-                    ConfirmChoice::Cancel => ConfirmChoice::No,
-                };
-            }
-            KeyCode::Enter => {
-                match app.confirm_choice {
-                    ConfirmChoice::Yes => {
-                        let filename = app.current_buffer().filename.clone();
-                        let lines = app.current_buffer().lines.clone();
-                        let _ = editor::save_to_file(&lines, &filename);
-                        close_current_tab(app);
-                    }
-                    ConfirmChoice::No => close_current_tab(app),
-                    ConfirmChoice::Cancel => {}
+        Mode::Confirm(ConfirmType::CloseTab) => {
+            let mut close_tab = false;
+            let mut save_and_close = false;
+            let mut needs_redraw = true;
+
+            match key.code {
+                KeyCode::Up | KeyCode::Left => {
+                    app.confirm_choice = match app.confirm_choice {
+                        ConfirmChoice::No => ConfirmChoice::Cancel,
+                        ConfirmChoice::Yes => ConfirmChoice::No,
+                        ConfirmChoice::Cancel => ConfirmChoice::Yes,
+                    };
                 }
-                app.confirm_mode = None;
-                *mode = Mode::Editing;
+                KeyCode::Down | KeyCode::Right => {
+                    app.confirm_choice = match app.confirm_choice {
+                        ConfirmChoice::No => ConfirmChoice::Yes,
+                        ConfirmChoice::Yes => ConfirmChoice::Cancel,
+                        ConfirmChoice::Cancel => ConfirmChoice::No,
+                    };
+                }
+                KeyCode::Enter => {
+                    match app.confirm_choice {
+                        ConfirmChoice::Yes => save_and_close = true,
+                        ConfirmChoice::No => close_tab = true,
+                        ConfirmChoice::Cancel => {}
+                    }
+                    app.confirm_mode = None;
+                    *mode = Mode::Editing;
+                }
+                KeyCode::Esc => {
+                    app.confirm_mode = None;
+                    *mode = Mode::Editing;
+                }
+                _ => needs_redraw = false,
             }
-            KeyCode::Esc => {
-                app.confirm_mode = None;
-                *mode = Mode::Editing;
+
+            if save_and_close {
+                save_and_close_tab(app);
+            } else if close_tab {
+                close_current_tab(app);
             }
-            _ => {}
-        },
+            if needs_redraw {
+                redraw_all(stdout, *mode, config, app, *active_tab, *dropdown_idx)?;
+            }
+        }
 
         Mode::Help => {
             if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
@@ -499,6 +509,16 @@ fn save_keybind_to_config(config: &mut Config, combo: &KeyCombo, action: Keybind
 
     config.custom_keybinds.retain(|(k, _)| k != &combo_str);
     config.custom_keybinds.push((combo_str, action_str));
+}
+
+fn save_and_close_tab(app: &mut AppState) {
+    let filename = app.current_buffer().filename.clone();
+    let lines = app.current_buffer().lines.clone();
+    if let Err(e) = editor::save_to_file(&lines, &filename) {
+        app.flash_status(format!("SAVE FAILED: {}", e));
+        return;
+    }
+    close_current_tab(app);
 }
 
 fn close_current_tab(app: &mut AppState) {
