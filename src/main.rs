@@ -1018,7 +1018,18 @@ fn handle_prompt_input(app: &mut AppState, code: KeyCode, _mode: &mut Mode, conf
 
 fn refresh_explorer(app: &mut AppState) -> std::io::Result<()> {
     let mut files = Vec::new();
-    for entry in fs::read_dir(&app.current_dir)?.filter_map(|e| e.ok()) {
+
+    let read_dir = match fs::read_dir(&app.current_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            app.explorer_files.clear();
+            app.explorer_idx = 0;
+            app.explorer_offset = 0;
+            return Err(e);
+        }
+    };
+
+    for entry in read_dir.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with('.') {
             continue;
