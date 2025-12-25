@@ -65,7 +65,12 @@ pub fn redraw_all(
     let editor_start_y = header_height + tab_bar_height + menu_height;
     let editor_height = term_h.saturating_sub(editor_start_y + status_height);
 
-    queue!(stdout, Clear(ClearType::All))?;
+    queue!(
+        stdout,
+        SetBackgroundColor(palette.ui_bg),
+        Clear(ClearType::Purge),
+        MoveTo(0, 0)
+    )?;
 
     if config.show_header {
         draw_header(stdout, term_w, state, palette)?;
@@ -1201,6 +1206,7 @@ fn draw_confirm_close_tab(
             stdout,
             MoveTo(x + 8, y + 5 + i as u16),
             SetBackgroundColor(if selected {
+                palette.accent_primary
                 palette.accent_primary
             } else {
                 palette.ui_background
