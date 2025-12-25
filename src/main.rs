@@ -56,13 +56,12 @@ fn main() -> std::io::Result<()> {
     redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
 
     loop {
-        app.tick_flash(); 
+        let mut needs_redraw = false;
 
         if poll(Duration::from_millis(100))? {
             match read()? {
                 Event::Resize(_, _) => {
-                    update_viewport(&mut app, &config);
-                    redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
+                    needs_redraw = true;
                 }
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     handle_key_event(
@@ -74,12 +73,20 @@ fn main() -> std::io::Result<()> {
                         &mut config,
                         &mut stdout,
                     )?;
+                    needs_redraw = true;
                 }
                 _ => {}
             }
         }
-        update_viewport(&mut app, &config);
-        redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
+
+        if app.tick_flash() {
+            needs_redraw = true;
+        }
+
+        if needs_redraw {
+            update_viewport(&mut app, &config);
+            redraw_all(&mut stdout, mode, &config, &app, active_tab, dropdown_idx)?;
+        }
     }
 }
 

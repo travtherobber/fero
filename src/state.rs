@@ -543,13 +543,15 @@ impl AppState {
         self.status_flash_timer = 20;
     }
 
-    pub fn tick_flash(&mut self) {
+    pub fn tick_flash(&mut self) -> bool {
         if self.status_flash_timer > 0 {
             self.status_flash_timer -= 1;
             if self.status_flash_timer == 0 {
                 self.status_flash = None;
+                return true;
             }
         }
+        false
     }
 }
   
