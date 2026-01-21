@@ -1,10 +1,11 @@
-use crate::state::{AppState, Config, MenuTab, Mode, Palette, PromptType, APP_NAME};
+use crate::core::snapshot::RenderSnapshot;
+use crate::core::state::{Config, MenuTab, Mode, Palette, PromptType, APP_NAME};
 use chrono::Local;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     execute, queue,
     style::{Color, Print, SetBackgroundColor, SetForegroundColor},
-    terminal::{size, Clear, ClearType},
+    terminal::{Clear, ClearType},
 };
 use std::collections::HashSet;
 use std::io::{Stdout, Write};
@@ -42,46 +43,41 @@ static BASH_KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 
 pub fn redraw_all(
     stdout: &mut Stdout,
-    mode: Mode,
-    config: &Config,
-    state: &AppState,
-    active_tab: MenuTab,
-    dropdown_idx: usize,
+    snapshot: &RenderSnapshot,
+    term_w: u16,
+    term_h: u16,
 ) -> std::io::Result<()> {
-    let palette = state.current_palette;
+    let palette = snapshot.palette;
     execute!(stdout, Hide)?;
-
-    let (term_w, term_h) = size().unwrap_or((80, 24));
-
-    let header_height = if config.show_header { 1 } else { 0 };
-    let tab_bar_height = if config.show_tab_bar && state.buffers.len() > 1 {
+    let header_height = if snapshot.config.show_header { 1 } else { 0 };
+    let tab_bar_height = if snapshot.config.show_tab_bar && snapshot.buffers.len() > 1 {
         1
     } else {
         0
     };
-    let menu_height = if mode == Mode::Menu { 1 } else { 0 };
-    let status_height = if config.show_status_bar { 1 } else { 0 };
+    let menu_height = if snapshot.mode == Mode::Menu { 1 } else { 0 };
+    let status_height = if snapshot.config.show_status_bar { 1 } else { 0 };
 
     let editor_start_y = header_height + tab_bar_height + menu_height;
     let editor_height = term_h.saturating_sub(editor_start_y + status_height);
 
     queue!(
         stdout,
-        SetBackgroundColor(palette.ui_bg),
+        SetBackgroundColor(palette.ui_background),
         Clear(ClearType::Purge),
         MoveTo(0, 0)
     )?;
 
-    if config.show_header {
-        draw_header(stdout, term_w, state, palette)?;
+    if snapshot.config.show_header {
+        draw_header(stdout, term_w, snapshot, palette)?;
     }
 
-    if config.show_tab_bar && state.buffers.len() > 1 {
-        draw_tab_bar(stdout, header_height, term_w, state, palette)?;
+    if snapshot.config.show_tab_bar && snapshot.buffers.len() > 1 {
+        draw_tab_bar(stdout, header_height, term_w, snapshot, palette)?;
     }
 
-    let buf = state.current_buffer();
-    let gutter_width = if config.show_line_numbers {
+    let buf = snapshot.current_buffer();
+    let gutter_width = if snapshot.config.show_line_numbers {
         let max_lines = buf.lines.len().max(1);
         (max_lines.to_string().len() + 2) as u16
     } else {
@@ -104,7 +100,7 @@ pub fn redraw_all(
         )?;
 
         if line_idx < buf.lines.len() {
-            if config.show_line_numbers {
+            if snapshot.config.show_line_numbers {
                 let line_num = line_idx + 1;
                 let num_str = format!(
                     " {:>width$} ",
@@ -116,8 +112,7 @@ pub fn redraw_all(
 
             draw_line_with_selection(
                 stdout,
-                state,
-                config,
+                snapshot,
                 line_idx,
                 viewport_offset_x,
                 editor_width,
@@ -126,47 +121,60 @@ pub fn redraw_all(
         }
     }
 
-    if mode == Mode::Explorer {
-        draw_explorer(stdout, state, editor_start_y, editor_height, palette)?;
+    if snapshot.mode == Mode::Explorer {
+        draw_explorer(stdout, snapshot, editor_start_y, editor_height, palette)?;
     }
-    if mode == Mode::Help {
-        draw_help_overlay(stdout, term_w, term_h, state, palette)?;
+    if snapshot.mode == Mode::Help {
+        draw_help_overlay(stdout, term_w, term_h, snapshot, palette)?;
     }
-    if mode == Mode::Settings {
-        draw_settings_overlay(stdout, term_w, term_h, config, state.settings_idx, palette)?;
+    if snapshot.mode == Mode::Settings {
+        draw_settings_overlay(
+            stdout,
+            term_w,
+            term_h,
+            snapshot.config,
+            snapshot.settings_idx,
+            palette,
+        )?;
     }
-    if mode == Mode::ColorEditor {
-        draw_color_editor_overlay(stdout, term_w, term_h, state, palette)?;
+    if snapshot.mode == Mode::ColorEditor {
+        draw_color_editor_overlay(stdout, term_w, term_h, snapshot, palette)?;
     }
-    if mode == Mode::KeyRebind {
-        draw_key_rebind_overlay(stdout, term_w, term_h, state, palette)?;
+    if snapshot.mode == Mode::KeyRebind {
+        draw_key_rebind_overlay(stdout, term_w, term_h, snapshot, palette)?;
     }
-    if mode == Mode::ConfirmWipe {
+    if snapshot.mode == Mode::ConfirmWipe {
         draw_confirm_wipe(stdout, term_w, term_h, palette)?;
     }
-    if state.input_mode {
-        draw_input_prompt(stdout, term_w, term_h, state, palette)?;
+    if snapshot.input_mode {
+        draw_input_prompt(stdout, term_w, term_h, snapshot, palette)?;
     }
-    if state.confirm_mode.is_some() {
-        draw_confirm_close_tab(stdout, term_w, term_h, state, palette)?;
+    if snapshot.confirm_mode.is_some() {
+        draw_confirm_close_tab(stdout, term_w, term_h, snapshot, palette)?;
     }
 
-    if mode == Mode::Menu {
-        draw_menu_bar(stdout, active_tab, header_height + tab_bar_height, palette)?;
+    if snapshot.mode == Mode::Menu {
+        draw_menu_bar(
+            stdout,
+            snapshot.active_tab,
+            term_w,
+            header_height + tab_bar_height,
+            palette,
+        )?;
         draw_current_dropdown(
             stdout,
-            active_tab,
-            dropdown_idx,
+            snapshot.active_tab,
+            snapshot.dropdown_idx,
             header_height + tab_bar_height + 1,
             palette,
         )?;
     }
 
-    if config.show_status_bar {
-        draw_status_bar(stdout, term_w, term_h, mode, state, config, palette)?;
+    if snapshot.config.show_status_bar {
+        draw_status_bar(stdout, term_w, term_h, snapshot, palette)?;
     }
 
-    if mode == Mode::Editing && !state.input_mode {
+    if snapshot.mode == Mode::Editing && !snapshot.input_mode {
         let cursor_x = gutter_width + (buf.cursor_x.saturating_sub(viewport_offset_x)) as u16;
         let cursor_y = editor_start_y + (buf.cursor_y.saturating_sub(viewport_offset_y)) as u16;
 
@@ -181,18 +189,17 @@ pub fn redraw_all(
 
 fn draw_line_with_selection(
     stdout: &mut Stdout,
-    state: &AppState,
-    config: &Config,
+    snapshot: &RenderSnapshot,
     line_idx: usize,
     viewport_offset_x: usize,
     editor_width: usize,
     palette: Palette,
 ) -> std::io::Result<()> {
-    let buf = state.current_buffer();
+    let buf = snapshot.current_buffer();
     let line = &buf.lines[line_idx];
     let file_ext = buf.filename.rsplit('.').next().unwrap_or("");
 
-    let keywords = if config.syntax_highlight {
+    let keywords = if snapshot.config.syntax_highlight {
         match file_ext {
             "rs" => Some(&*RUST_KEYWORDS),
             "py" => Some(&*PYTHON_KEYWORDS),
@@ -206,7 +213,7 @@ fn draw_line_with_selection(
     let start = viewport_offset_x.min(line.len());
     let end = (start + editor_width).min(line.len());
 
-    if let Some(sel) = &state.selection {
+    if let Some(sel) = snapshot.selection.as_ref() {
         let (sx, sy, ex, ey) = sel.normalized();
         if line_idx >= sy && line_idx <= ey {
             let sel_start = if line_idx == sy { sx } else { 0 };
@@ -413,7 +420,7 @@ fn draw_tab_bar(
     stdout: &mut Stdout,
     y: u16,
     w: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
     queue!(
@@ -425,9 +432,9 @@ fn draw_tab_bar(
     )?;
 
     let mut x = 2u16;
-    let active_idx = state.active_buffer;
+    let active_idx = snapshot.active_buffer;
 
-    for (i, buf) in state.buffers.iter().enumerate() {
+    for (i, buf) in snapshot.buffers.iter().enumerate() {
         let marker = if buf.modified { "● " } else { "  " };
         let name = format!("{}{}", marker, buf.filename);
         let tab_len = name.len() as u16 + 2;
@@ -469,10 +476,10 @@ fn draw_tab_bar(
 fn draw_header(
     stdout: &mut Stdout,
     w: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
-    let buf = state.current_buffer();
+    let buf = snapshot.current_buffer();
     let filename = &buf.filename;
 
     queue!(
@@ -506,10 +513,10 @@ fn draw_header(
 pub fn draw_menu_bar(
     stdout: &mut Stdout,
     active_tab: MenuTab,
+    term_w: u16,
     y: u16,
     palette: Palette,
 ) -> std::io::Result<()> {
-    let (term_w, _) = size().unwrap_or((80, 24));
 
     queue!(
         stdout,
@@ -627,10 +634,10 @@ fn draw_input_prompt(
     stdout: &mut Stdout,
     w: u16,
     h: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
-    let title = match state.prompt_type {
+    let title = match snapshot.prompt_type {
         PromptType::SaveAs => "SAVE AS",
         PromptType::Find => "FIND TEXT",
         PromptType::GoToLine => "GO TO LINE",
@@ -658,11 +665,11 @@ fn draw_input_prompt(
         Print(title)
     )?;
 
-    if state.prompt_type == PromptType::SaveAs {
-        let path_display = if state.input_buffer.is_empty() {
-            format!("{}", state.current_dir.display())
+    if snapshot.prompt_type == PromptType::SaveAs {
+        let path_display = if snapshot.input_buffer.is_empty() {
+            format!("{}", snapshot.current_dir.display())
         } else {
-            let p = state.current_dir.join(&state.input_buffer);
+            let p = snapshot.current_dir.join(snapshot.input_buffer);
             format!("{}", p.display())
         };
 
@@ -681,7 +688,7 @@ fn draw_input_prompt(
         SetBackgroundColor(palette.ui_background),
         Clear(ClearType::UntilNewLine),
         Print("> "),
-        Print(&state.input_buffer),
+        Print(snapshot.input_buffer),
     )?;
 
     queue!(
@@ -698,13 +705,11 @@ fn draw_status_bar(
     stdout: &mut Stdout,
     w: u16,
     h: u16,
-    mode: Mode,
-    state: &AppState,
-    config: &Config,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
     let y = h.saturating_sub(1);
-    let buf = state.current_buffer();
+    let buf = snapshot.current_buffer();
 
     queue!(
         stdout,
@@ -714,16 +719,16 @@ fn draw_status_bar(
         Print(" ".repeat(w as usize))
     )?;
 
-    let mode_str = if let Some(flash) = &state.status_flash {
+    let mode_str = if let Some(flash) = snapshot.status_flash {
         format!(" {} ", flash)
     } else {
-        format!(" {} ", format!("{:?}", mode).to_uppercase())
+        format!(" {} ", format!("{:?}", snapshot.mode).to_uppercase())
     };
 
     let pos_str = format!(" L{},C{} ", buf.cursor_y + 1, buf.cursor_x + 1);
     let modified = if buf.modified { " ●" } else { "" };
-    let auto_save = if config.auto_save { " AS" } else { "" };
-    let undo_redo = format!(" U:{} R:{}", state.undo_stack.len(), state.redo_stack.len());
+    let auto_save = if snapshot.config.auto_save { " AS" } else { "" };
+    let undo_redo = format!(" U:{} R:{}", snapshot.undo_len, snapshot.redo_len);
 
     let right_str = format!("{}{}{}{}", pos_str, auto_save, modified, undo_redo);
     let right_len = right_str.len() as u16;
@@ -731,7 +736,7 @@ fn draw_status_bar(
     queue!(
         stdout,
         MoveTo(2, y),
-        SetForegroundColor(if state.status_flash.is_some() {
+        SetForegroundColor(if snapshot.status_flash.is_some() {
             palette.warning
         } else {
             palette.status_bar_fg
@@ -753,7 +758,7 @@ fn draw_help_overlay(
     stdout: &mut Stdout,
     w: u16,
     h: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
     let box_w = 60;
@@ -798,7 +803,7 @@ fn draw_help_overlay(
         queue!(stdout, SetForegroundColor(palette.ui_foreground), Print(desc))?;
     }
 
-    if !state.keybind_state.custom_binds.is_empty() {
+    if !snapshot.keybind_state.custom_binds.is_empty() {
         queue!(stdout, MoveTo(x + 3, y + 16))?;
         queue!(
             stdout,
@@ -807,7 +812,7 @@ fn draw_help_overlay(
         )?;
 
         let mut y_line = y + 17;
-        for (combo, action) in state.keybind_state.custom_binds.iter().take(3) {
+        for (combo, action) in snapshot.keybind_state.custom_binds.iter().take(3) {
             let key_str = combo.to_string();
             queue!(stdout, MoveTo(x + 5, y_line))?;
             queue!(
@@ -900,7 +905,7 @@ fn draw_key_rebind_overlay(
     stdout: &mut Stdout,
     w: u16,
     h: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
     let box_w = 52;
@@ -943,7 +948,7 @@ fn draw_key_rebind_overlay(
         "Reset to Default",
     ];
 
-    let kb = &state.keybind_state;
+    let kb = snapshot.keybind_state;
     let visible_lines = 14;
     let start = kb.scroll_offset;
     let end = (start + visible_lines).min(actions.len());
@@ -1040,7 +1045,7 @@ fn draw_confirm_wipe(stdout: &mut Stdout, w: u16, h: u16, palette: Palette) -> s
 
 fn draw_explorer(
     stdout: &mut Stdout,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     y_start: u16,
     height: u16,
     palette: Palette,
@@ -1063,12 +1068,12 @@ fn draw_explorer(
             Print(" ".repeat(width as usize))
         )?;
 
-        let file_idx = state.explorer_offset + (i as usize - 1);
-        if file_idx < state.explorer_files.len() {
-            let name = &state.explorer_files[file_idx];
+        let file_idx = snapshot.explorer_offset + (i as usize - 1);
+        if file_idx < snapshot.explorer_files.len() {
+            let name = &snapshot.explorer_files[file_idx];
             queue!(stdout, MoveTo(2, y_start + i))?;
 
-            if file_idx == state.explorer_idx {
+            if file_idx == snapshot.explorer_idx {
                 queue!(
                     stdout,
                     SetBackgroundColor(palette.accent_primary),
@@ -1093,16 +1098,16 @@ fn draw_color_editor_overlay(
     stdout: &mut Stdout,
     w: u16,
     h: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
     let box_w = 64;
-    let box_h = (state.color_entries.len() + 6).min(h as usize - 2) as u16;
+    let box_h = (snapshot.color_entries.len() + 6).min(h as usize - 2) as u16;
     let start_x = (w.saturating_sub(box_w)) / 2;
     let start_y = (h.saturating_sub(box_h)) / 2;
     let visible_items = (box_h - 5) as usize;
-    let scroll_offset = if state.color_editor_idx >= visible_items {
-        state.color_editor_idx - visible_items + 1
+    let scroll_offset = if snapshot.color_editor_idx >= visible_items {
+        snapshot.color_editor_idx - visible_items + 1
     } else {
         0
     };
@@ -1130,14 +1135,32 @@ fn draw_color_editor_overlay(
         Print("↑↓ navigate • Enter edit • Ctrl+S save • Esc exit")
     )?;
 
-    for (i, entry) in state.color_entries.iter().skip(scroll_offset).take(visible_items).enumerate() {
+    for (i, entry) in snapshot
+        .color_entries
+        .iter()
+        .skip(scroll_offset)
+        .take(visible_items)
+        .enumerate()
+    {
         let y = start_y + 4 + i as u16;
         let global_idx = i + scroll_offset;
         queue!(stdout, MoveTo(start_x + 3, y))?;
 
-        let prefix = if global_idx == state.color_editor_idx { "▶ " } else { "  " };
-        let name_fg = if global_idx == state.color_editor_idx { palette.accent_primary } else { palette.ui_foreground };
-        let hex_fg = if global_idx == state.color_editor_idx && state.editing_hex { palette.syntax_string } else { palette.ui_foreground };
+        let prefix = if global_idx == snapshot.color_editor_idx {
+            "▶ "
+        } else {
+            "  "
+        };
+        let name_fg = if global_idx == snapshot.color_editor_idx {
+            palette.accent_primary
+        } else {
+            palette.ui_foreground
+        };
+        let hex_fg = if global_idx == snapshot.color_editor_idx && snapshot.editing_hex {
+            palette.syntax_string
+        } else {
+            palette.ui_foreground
+        };
 
         queue!(
             stdout,
@@ -1152,11 +1175,15 @@ fn draw_color_editor_overlay(
         )?;
     }
 
-    if state.editing_hex {
-        let y = start_y + 4 + (state.color_editor_idx - scroll_offset) as u16;
+    if snapshot.editing_hex {
+        let y = start_y + 4 + (snapshot.color_editor_idx - scroll_offset) as u16;
         queue!(
             stdout,
-            MoveTo(start_x + 25 + state.color_entries[state.color_editor_idx].current_hex.len() as u16, y),
+            MoveTo(
+                start_x + 25
+                    + snapshot.color_entries[snapshot.color_editor_idx].current_hex.len() as u16,
+                y
+            ),
             SetForegroundColor(palette.cursor)
         )?;
     }
@@ -1168,7 +1195,7 @@ fn draw_confirm_close_tab(
     stdout: &mut Stdout,
     w: u16,
     h: u16,
-    state: &AppState,
+    snapshot: &RenderSnapshot,
     palette: Palette,
 ) -> std::io::Result<()> {
     let box_w = 50;
@@ -1201,12 +1228,11 @@ fn draw_confirm_close_tab(
 
     let options = ["No (discard)", "Yes (save)", "Cancel"];
     for (i, opt) in options.iter().enumerate() {
-        let selected = state.confirm_choice as usize == i;
+        let selected = snapshot.confirm_choice as usize == i;
         queue!(
             stdout,
             MoveTo(x + 8, y + 5 + i as u16),
             SetBackgroundColor(if selected {
-                palette.accent_primary
                 palette.accent_primary
             } else {
                 palette.ui_background
