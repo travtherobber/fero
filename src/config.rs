@@ -1,4 +1,4 @@
-use crate::state::Config;
+use crate::core::state::Config;
 use std::fs;
 use std::path::PathBuf;
 
